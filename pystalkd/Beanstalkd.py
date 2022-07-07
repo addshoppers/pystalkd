@@ -67,6 +67,10 @@ class SocketError(BeanstalkdException):
             raise SocketError(err)
 
 
+class ConnectionLostError(SocketError):
+    pass
+
+
 def total_seconds(td):
     """
     simulates the total_seconds function added in python 3.2+ and 2.7+
@@ -166,7 +170,12 @@ class Connection(object):
 
         response = self._recv()
         response = response.strip().split(maxsplit=1)
-        if len(response) == 1:
+        if not response:
+            # recv() returns an empty byte string when connection with server is lost.
+            # We don't raise ConnectionLostError here because some commands such as QUIT
+            # close connection themselves.
+            status, rest = b"", b""
+        elif len(response) == 1:
             status, rest = response[0], response[0]
         else:
             status, rest = response
@@ -200,6 +209,8 @@ class Connection(object):
 
         if status in ok_status:
             return status, command_body
+        elif not status:
+            raise ConnectionLostError("CONNECTION_LOST")
         elif status in error_status:
             raise CommandFailed(status)
         else:
